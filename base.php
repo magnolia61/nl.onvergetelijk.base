@@ -2079,6 +2079,19 @@ function base_pid2part($partid) {
         'kenmerken_kampkort'            => $ekort                                           ?? NULL,
         'kenmerken_kampkort_low'        => strtolower(preg_replace('/[^ \w-]/','',$ekort))  ?? NULL,
         'kenmerken_kampkort_cap'        => strtoupper(preg_replace('/[^ \w-]/','',$ekort))  ?? NULL,
+
+        'groepklas'                     => $result['PART_DEEL.Groep_klas']                  ?? NULL,
+        'voorkeur'                      => $result['PART_DEEL.Voorkeur']                    ?? NULL,
+
+        'criteria_leeftijd'             => $result['PART_DEEL_INTERN.criteria_leeftijd']    ?? NULL,
+        'criteria_school'               => $result['PART_DEEL_INTERN.criteria_school']      ?? NULL,
+        'criteria_indicatie'            => $result['PART_DEEL_INTERN.criteria_indicatie']   ?? NULL,
+        'criteria_oordeel'              => $result['PART_DEEL_INTERN.criteria_oordeel']     ?? NULL,
+        'wachtlijst_erop'               => $result['PART_DEEL_INTERN.wachtlijst_erop']      ?? NULL,
+        'wachtlijst_eraf'               => $result['PART_DEEL_INTERN.wachtlijst_eraf']      ?? NULL,
+        'criteriacheck_start'           => $result['PART_DEEL_INTERN.criteriacheck_start']  ?? NULL,
+        'criteriacheck_einde'           => $result['PART_DEEL_INTERN.criteriacheck_einde']  ?? NULL,
+
         'part_nawgecheckt'              => $result['PART.NAW_gecheckt']                     ?? NULL,
         'part_biogecheckt'              => $result['PART.BIO_gecheckt']                     ?? NULL,
         'part_groepklas'                => $result['PART_DEEL.Groep_klas']                  ?? NULL,
