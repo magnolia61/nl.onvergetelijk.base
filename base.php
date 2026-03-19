@@ -97,195 +97,112 @@ function addPhpModifiers(&$smarty)
 
 function wachthond(int $extdebug, int $severity, string $message, $arrayvalue = null) {
 
-    // 0. Override check: Forceer weergave als de globale variabele 'force_watchdog' op true staat
-    $force_all = isset($GLOBALS['force_watchdog']) && $GLOBALS['force_watchdog'] === true;
+    /*
+    ################################################################################################
+    ### 0. CONFIGURATIE & OVERRIDE LOGICA (FORCE, NONE, DEFAULT)
+    ################################################################################################
+    # $extdebug:        De globale CiviCRM setting (het 'kraantje').
+    # $severity:        Het niveau van dit specifieke bericht in de code (1, 2, 3, etc.).
+    # $GLOBALS['force_watchdog']:
+    #   - 'none':       Harde stop. Geen enkele log wordt geschreven.
+    #   - 'force':      Noodrem. We negeren alle filters en loggen ALLES.
+    #   - 'default':    Standaard gedrag op basis van $extdebug en de $debug_map.
+    ################################################################################################
+    */
+    $override  = isset($GLOBALS['force_watchdog']) ? $GLOBALS['force_watchdog'] : 'default';
+
+    // 0.1 De "NONE" stand: Als de globale setting op 'none' staat, stoppen we direct.
+    if ($override === 'none') {
+        return;
+    }
+
+    // 0.2 De "FORCE" stand: Als 'force' (of legacy TRUE) is ingesteld, loggen we alles.
+    $force_all = ($override === 'force' || $GLOBALS['force_watchdog'] === true);
 
     // 1. Snelle exit checks (Debug level filters)
     $debuglevel = intval($extdebug);
     
-    // Mapping van severity naar gedrag
+    /*
+    ################################################################################################
+    ### 1. HET FILTER-DASHBOARD (De $debug_map)
+    ################################################################################################
+    # Hier bepalen we per severity wat er moet gebeuren, ongeacht de CiviCRM $extdebug waarde.
+    # 0 = Blokkeren: Dit type bericht komt NOOIT in de logs (handig bij te veel ruis).
+    # 1 = Toelaten:  Dit type bericht komt ALTIJD in de logs (mits $extdebug > 0).
+    # Niet in map? Dan valt de code terug op de standaard check: ($severity <= $debuglevel).
+    ################################################################################################
+    */
     $debug_map = [
-        7 => 0, // params (0 = off, 1 = on)
-        8 => 1, // notice
-        9 => 0  // result
+        0             => 0, // Nooit loggen (harde uit)
+        7             => 0, // API Params (Vaak te veel data)
+        8             => 1, // Belangrijke CiviCRM Notices
+        9             => 0  // API Results (Vaak enorme arrays)
     ];
 
-    // Alleen filteren als de override NIET actief is
     if (!$force_all) {
+        
+        // STAP A: De Harde Blokkade (Prioriteit 1)
+        // Als de map zegt "0", dan stopt het hier, ongeacht de CiviCRM setting.
         if (isset($debug_map[$severity]) && $debug_map[$severity] === 0) {
             return;
         }
-        $writelog = ($severity <= $debuglevel || (isset($debug_map[$severity]) && $debug_map[$severity] === 1 && $debuglevel >= 1));
 
-        if (!$writelog) {
+        // STAP B: De Kraan-check (Prioriteit 2 - Jouw 1, 2, 3 check)
+        // Hier kijken we simpelweg: Is de severity lager of gelijk aan wat jij in Civi hebt ingesteld?
+        $level_match  = ($severity <= $debuglevel && $severity > 0);
+
+        // STAP C: De Uitzondering (Prioriteit 3)
+        // Als het geen level match is, kijken we of de map zegt dat het tóch door moet (bijv. severity 8).
+        $is_explicit  = (isset($debug_map[$severity]) && $debug_map[$severity] === 1 && $debuglevel >= 1);
+
+        // Als beide checks falen -> EXIT
+        if (!$level_match && !$is_explicit) {
             return;
         }
     }
 
-    // 2. Severity bepalen (Gebruik de Drupal constanten, geen strings)
-    $drupal_severity = ($severity == 8) ? WATCHDOG_NOTICE : WATCHDOG_DEBUG;
+    /*
+    ################################################################################################
+    ### 2. OPMAAK & VISUELE UITLIJNING
+    ################################################################################################
+    # Om de logs in Drupal leesbaar te houden, berekenen we het aantal &nbsp; (spaces).
+    # $tabshort: Voor korte berichten (tot 56 tekens).
+    # $tablong:  Voor langere berichten (tot 72 tekens).
+    ################################################################################################
+    */
+    $drupal_severity  = ($severity == 8) ? WATCHDOG_NOTICE : WATCHDOG_DEBUG;
 
-    // 3. Uitlijning berekenen (Tabs/Spaces)
-    $tabshort   = 56;
-    $tablong    = 72;
-    $message    = trim($message);
-    $length     = strlen($message);
+    $tabshort         = 56;
+    $tablong          = 72;
+    $message          = trim($message);
+    $length           = strlen($message);
     
-    $tabtarget  = ($length <= $tabshort) ? $tabshort : $tablong;
-    $fillspacelength = max(0, $tabtarget - $length);
-    
-    // Genereer HTML spaces voor de uitlijning in de Drupal log viewer
-    $spaces     = str_repeat("&nbsp;", $fillspacelength);
+    // Bepaal het doelwit voor de uitlijning op basis van berichtlengte
+    $tabtarget        = ($length <= $tabshort) ? $tabshort : $tablong;
+    $fillspacelength  = max(0, $tabtarget - $length);
+    $spaces           = str_repeat("&nbsp;", $fillspacelength);
 
-    // 4. Data voorbereiden (PHP 8 veilig maken)
-    // Als het '0' is of een gevulde waarde, tonen we de divider
-    $divider    = (empty($arrayvalue) && $arrayvalue !== 0 && $arrayvalue !== '0') ? "" : " : ";
+    /*
+    ################################################################################################
+    ### 3. DATA TRANSFORMATIE (PHP 8 SAFE)
+    ################################################################################################
+    # We zorgen dat $arrayvalue (die alles kan zijn: string, array, object) veilig getoond wordt.
+    # We gebruiken een divider " : " alleen als er daadwerkelijk data is om te tonen.
+    ################################################################################################
+    */
+    $divider          = (empty($arrayvalue) && $arrayvalue !== 0 && $arrayvalue !== '0') ? "" : " : ";
     
-    // Zorg dat $arrayvalue altijd veilig geprint kan worden
-    // print_r($var, true) is veilig, maar we trimmen het voor de netheid
-    $formatted_value = print_r($arrayvalue, true);
+    // Gebruik print_r met 'true' om de output als string terug te krijgen in plaats van te printen.
+    $formatted_value  = print_r($arrayvalue, true);
 
-    // 5. Schrijf naar Drupal Watchdog
-    // We gebruiken <pre> zodat de &nbsp; en line-breaks goed overkomen
+    /*
+    ################################################################################################
+    ### 4. DE FINALE LOG-ACTIE
+    ################################################################################################
+    # We wrappen alles in <pre> tags. Dit behoudt de spaties en regeleinden van print_r.
+    ################################################################################################
+    */
     watchdog('php', "<pre>$message$spaces$divider$formatted_value</pre>", NULL, $drupal_severity);
-}
-
-function wachthond_org (int $extdebug, int $severity, string $message, $arrayvalue = null) {
-
-  $debuglevel     = intval($extdebug);
-  //  $debuglevel     = 2; // 0 - 5 
-  $debugparams    = 0; // 0 or 1
-  $debugresult    = 0; // 0 or 1
-  $debugnotice    = 1; // 0 or 1
-
-  if ($severity == 7 AND $debugparams == 0) {
-    return;
-  }
-  if ($severity == 9 AND $debugresult == 0) {
-    return;
-  }
-  if ($severity == 8 AND $debugnotice == 0) {
-    return;
-  }
-
-  if ($severity <= $debuglevel) {
-    $writelog = 1;
-  } else {
-    $writelog = 0;
-  }
-
-  if ($severity == 7  AND $debugparams == 1 AND $debuglevel >= 1) {
-    $writelog = 1;
-  }
-  if ($severity == 9  AND $debugresult == 1 AND $debuglevel >= 1) {
-    $writelog = 1;
-  }
-  if ($severity == 8  AND $debugnotice == 1 AND $debuglevel >= 1) {
-    $writelog = 1;
-  }
-
-  if ($severity == 8) {
-    $wachthond_severity = 'WATCHDOG_NOTICE';
-  } else {
-    $wachthond_severity = 'WATCHDOG_DEBUG';
-  }
-
-  $tabshort       = 56;
-  $tablong        = 72;
-
-  $message        = trim($message);
-  $messagelenght  = strlen($message);
-
-  if ($messagelenght <= $tabshort) {
-    $tabtarget = $tabshort;
-  }
-  if ($messagelenght  > $tabshort) {
-    $tabtarget = $tablong;
-  }
-
-  $fillspacelenght  = ($tabtarget - $messagelenght);
-
-  ######### SOLUTION WITH SPACES ###############
-
-    $space1 = " ";
-    $space2 = "  ";
-    $space3 = "   ";
-    $space4 = "    ";
-    $space5 = "     ";  
-    $space6 = "      "; 
-    $space7 = "       ";  
-    $space8 = "        "; 
-    $space9 = "         ";  
-
-    if ($fillspacelenght > 0) {
-      $spaces = str_repeat("&nbsp;", $fillspacelenght);
-  } else {
-    $spaces = NULL;
-  }
-
-  ######### SOLUTION WITH TABS ###############
-
-  $tabsrequired_dec = (($fillspacelenght) / 4);
-  $tabsrequired_rnd = CEIL($tabsrequired_dec);
-
-  $fulltabs         = ($tabsrequired_rnd-1);
-  $tabspacelenght   = (($tabsrequired_rnd-1) * 4);
-  $spacesleft       = $fillspacelenght - $tabspacelenght;
-  $totallenght      = $messagelenght + $tabspacelenght + $spacesleft;
-
-  $tab  = "\t";
-  $tab1 = "\t";
-  $tab2 = "\t\t";
-  $tab3 = "\t\t\t";
-  $tab4 = "\t\t\t\t";
-  $tab5 = "\t\t\t\t\t";
-
-  if ($tabsrequired_rnd == 1) { $tab = $tab1; }
-  if ($tabsrequired_rnd == 2) { $tab = $tab2; }
-  if ($tabsrequired_rnd == 3) { $tab = $tab3; }
-  if ($tabsrequired_rnd == 4) { $tab = $tab4; }
-  if ($tabsrequired_rnd == 5) { $tab = $tab5; }
-
-  ######### CONFIGURE DIVIDER ###############
-
-  if (empty($arrayvalue)) {
-    $wachthonddivider = NULL;
-  } else {
-    $wachthonddivider = ":";
-  }
-  if ($arrayvalue == '0') {
-    $wachthonddivider = ":";    
-  }
-
-/*
-  wachthond($extdebug, 1, 'messagelenght',    $messagelenght);
-  wachthond($extdebug, 1, 'fillspacelenght',  $fillspacelenght);
-  wachthond($extdebug, 1, 'tabsrequired_dec', $tabsrequired_dec);
-  wachthond($extdebug, 1, 'tabsrequired_rnd', $tabsrequired_rnd);
-  wachthond($extdebug, 1, 'spacesleft',       $spacesleft);
-*/
-
-  ######### WRITE TO SYSLOG ###############
-
-  if ($severity == 8) {
-    $wachthond_severity = 'WATCHDOG_NOTICE';
-  } else {
-    $wachthond_severity = 'WATCHDOG_DEBUG';
-  }
-
-
-  if ($writelog == 1 AND $severity == 8) {
-
-//  watchdog('php', "<pre>$message $spaces $wachthonddivider ".print_r($arrayvalue,TRUE)." ($fillspacelenght)</pre>",NULL,WATCHDOG_DEBUG);
-//  watchdog('php', "<pre>$message $spaces $wachthonddivider ".print_r($arrayvalue,TRUE)."</pre>",NULL, $wachthond_severity);
-    watchdog('php', "<pre>$message $spaces $wachthonddivider ".print_r($arrayvalue,TRUE)."</pre>",NULL,WATCHDOG_NOTICE);
-  }
-
-  if ($writelog == 1 AND $severity != 8) {
-    watchdog('php', "<pre>$message $spaces $wachthonddivider ".print_r($arrayvalue,TRUE)."</pre>",NULL,WATCHDOG_DEBUG);    
-  }
-
-
 }
 
 /**
